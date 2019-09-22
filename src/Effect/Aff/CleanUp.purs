@@ -57,15 +57,8 @@ generalFinally initialValue operation finally' =
       currentValue <- liftEffect $ Ref.read ref
       finally' res currentValue
 
--- TODO use record
-type FinallyM res = ReaderT CleanUpRegisterer Aff res
-
--- TODO Remove maybe
-type CleanUpRegisterer = Maybe CleanUp -> Effect Unit
-
+type FinallyM res = ReaderT { registerCleanUp :: Exists CleanUpR -> Effect Unit } Aff res
 type CleanUpM a res = ReaderT { current :: OpRes a, final :: Exists OpRes } Aff res
-
-type CleanUp = Exists CleanUpR
 
 newtype CleanUpR a = CleanUpR
   { cleanUp :: CleanUpM a Unit
@@ -87,9 +80,8 @@ hook
   -> MakeAffCB a
   -> FinallyM a
 hook cleanUp f = do
-  registerCleanup <- ask
-  lift $ hook' (\current -> registerCleanup $ Just $ mkExists (CleanUpR {cleanUp, current}) ) f
-
+  { registerCleanUp } <- ask
+  lift $ hook' (\current -> registerCleanUp $ mkExists (CleanUpR {cleanUp, current}) ) f
 
 runFinallyM
   :: forall a
@@ -97,7 +89,10 @@ runFinallyM
   -> Aff a
 runFinallyM operation = generalFinally
   (Nothing)
-  (\registerCleanup -> runReaderT operation registerCleanup)
+  (\registerCleanUp -> runReaderT operation
+      { registerCleanUp: registerCleanUp <<< Just
+      }
+  )
   (\res cleanUpEMb -> for_ cleanUpEMb
     $ runExists \(CleanUpR {cleanUp, current}) ->
         runReaderT cleanUp {current, final: mkExists res}
