@@ -38,9 +38,9 @@ import Prelude
 import Control.Lazy (fix)
 import Control.Monad.Reader (ReaderT, ask, lift, runReaderT)
 import Control.Monad.Rec.Class (forever)
+import Data.Array (catMaybes, (:))
 import Data.Either (Either(..))
 import Data.Foldable (for_)
-import Data.List (List, catMaybes, (:))
 import Data.Maybe (Maybe(..))
 import Data.Traversable (for)
 import Data.Tuple (Tuple(..))
@@ -58,7 +58,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 data Cap
 
-data Bus (r :: # Type) a = Bus (AVar (Either Error a)) (AVar (List (Ref (Maybe (Consumer a)))))
+data Bus (r :: # Type) a = Bus (AVar (Either Error a)) (AVar (Array (Ref (Maybe (Consumer a)))))
 
 
 
