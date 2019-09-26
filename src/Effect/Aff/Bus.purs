@@ -101,11 +101,13 @@ make = liftEffect do
         pure unit
         cs ← AVar.take consumers
         liftEffect do
+          EffAVar.kill err cell
           for_ cs $ \cRef -> do
             mbC <- liftEffect $ Ref.read cRef
             for_ mbC (runConsumer (_.outputVar >>> EffAVar.kill err))
           EffAVar.kill err consumers
-          EffAVar.kill err cell
+          -- TODO investigate why having `EffAVar.kill err cell` here instead of up there
+          -- results in strange deadlock when `test_consume` is run with `range 1 1025`
       Right res -> do
         void $ AVar.take cell
         cs ← AVar.take consumers
@@ -159,7 +161,16 @@ consume (Bus _ consumers) consumer = F.runFinallyM do
   EffAVar.take outputVar # F.finally' do
     -- here in any case we kill `outputVar`
     lift $ AVar.kill (Exn.error "cleanup") outputVar
-
+  --TODO investigate reason:
+  --
+  -- if instead of `EffAVar.___ outputVar # F.finally'` we have
+  -- `AVar.___ outputVar # F.finallyAff` then we get this error in tests:
+  --
+  --     [Start] Testing read/write/kill
+  --     `res` should be as expected
+  --       Expected: [(Right 1),(Right 1),(Right 2),(Right 2),(Right 3),(Right 3),(Left "Error: Done ..."),(Left "Error: Done ...")]
+  --       Actual:   [(Right 1),(Right 1),(Right 2),                    (Right 3),(Left "Error: Done ..."),(Left "Error: Done ...")]
+  --     [Error] Testing read/write/kill
 -- | Same as `consume` but consuming function returns Aff instead of Effect.
 -- | When consuming function is not completed and new value comes in, it gets
 -- | killed and is invoked with new value.
