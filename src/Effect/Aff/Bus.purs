@@ -49,7 +49,7 @@ import Effect.AVar as EffAVar
 import Effect.Aff (Aff, Error, generalBracket, killFiber, launchAff, launchAff_, try)
 import Effect.Aff.AVar (AVar)
 import Effect.Aff.AVar as AVar
-import Effect.Aff.CleanUp as CU
+import Effect.Aff.Finally as F
 import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Exception as Exn
 import Effect.Ref (Ref)
@@ -134,10 +134,10 @@ data Step res = Loop | Done res
 -- | `Done x` and then computation is resolved with the `x`. 
 -- | if Effect raises an exception it will be propagated
 consume :: ∀ a r output. BusR' r a -> (a -> ReaderT (AVar output) Effect Unit) -> Aff output
-consume (Bus _ consumers) consumer = CU.runFinallyM do
-  cs ← EffAVar.take consumers # CU.hook do
+consume (Bus _ consumers) consumer = F.runFinallyM do
+  cs ← EffAVar.take consumers # F.finally' do
     -- If we were able to `take` we must put it back.
-    CU.onResult \cs -> lift $ AVar.put cs consumers
+    F.onResult \cs -> lift $ AVar.put cs consumers
 
   {outputVar, cRef} <- lift $ liftEffect do
     outputVar <- EffAVar.empty
@@ -149,14 +149,14 @@ consume (Bus _ consumers) consumer = CU.runFinallyM do
     pure {outputVar, cRef}
       
 
-  EffAVar.put (cRef : cs) consumers # CU.hook do
+  EffAVar.put (cRef : cs) consumers # F.finally' do
     -- If we were able to `put` then we must kill outputVar
-    CU.onResult \_ -> (CU.onError <> CU.onFinalError) \err -> do
+    F.onResult \_ -> (F.onError <> F.onFinalError) \err -> do
       lift $ AVar.kill err outputVar
     -- Otherwise we should `put` back to `consumers`.
-    CU.onError \_ -> lift $ AVar.put cs consumers
+    F.onError \_ -> lift $ AVar.put cs consumers
 
-  EffAVar.take outputVar # CU.hook do
+  EffAVar.take outputVar # F.finally' do
     -- here in any case we kill `outputVar`
     lift $ AVar.kill (Exn.error "cleanup") outputVar
 
@@ -192,7 +192,7 @@ split (Bus a b) = Tuple (Bus a b) (Bus a b)
 -- | `kill` is idempotent and blocks until killing process is fully finishes, i.e.
 -- | `kill err bus *> isKilled bus` will result with `true`.
 kill :: ∀ a r. Exn.Error -> BusW' r a -> Aff Unit
-kill err bus@(Bus cell consumers) = do
+kill err bus@(Bus cell _) = do
   unlessM (isKilled bus) do
     -- If there are multiple parallel processes executing `kill` at the same time,
     -- then without this try all of processes which are blocked bu put will be killed
